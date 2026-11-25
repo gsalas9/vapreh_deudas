@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Seguimiento: pacientes con deuda</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --sidebar: #1e293b; --bg: #f8fafc; --card: #ffffff; --text: #0f172a;
+    --muted: #64748b; --border: #e2e8f0; --primary: #2563eb; --danger: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+  [hidden] { display: none !important; }
+
+  /* Login */
+  .login { min-height: 100vh; display: grid; place-items: center; }
+  .login form { background: var(--card); padding: 32px; border-radius: 12px; width: 320px; box-shadow: 0 4px 16px rgba(0,0,0,.08); display: grid; gap: 12px; }
+  .login h1 { margin: 0 0 8px; font-size: 22px; }
+
+  input, select, button, textarea { font: inherit; padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; }
+  button { cursor: pointer; }
+  button.primary { background: var(--primary); color: #fff; border: none; }
+  button.primary:hover { opacity: .9; }
+
+  /* Layout */
+  .layout { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
+  aside { background: var(--sidebar); color: #fff; padding: 24px 16px; display: flex; flex-direction: column; gap: 8px; }
+  aside h2 { font-size: 16px; margin: 0 0 16px; }
+  aside .nav { color: #fff; background: rgba(255,255,255,.1); padding: 8px 12px; border-radius: 6px; }
+  aside .logout { margin-top: auto; background: transparent; color: #cbd5e1; border: 1px solid #475569; }
+
+  /* Filtro de meses */
+  .side-filter { margin-top: 16px; }
+  .side-title { font-size: 13px; color: #94a3b8; margin-bottom: 8px; }
+  .side-actions { display: flex; gap: 6px; margin-bottom: 8px; }
+  .side-actions button { flex: 1; padding: 4px 8px; font-size: 12px; background: transparent; color: #cbd5e1; border: 1px solid #475569; border-radius: 6px; }
+  .meses { max-height: 280px; overflow-y: auto; display: grid; gap: 4px; }
+  .meses label { display: flex; align-items: center; gap: 8px; font-size: 14px; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
+  .meses label:hover { background: rgba(255,255,255,.08); }
+  .meses input { accent-color: var(--primary); }
+
+  main { padding: 28px 32px; }
+  h1.page { margin: 0; font-size: 26px; }
+  .sub { color: var(--muted); margin: 4px 0 24px; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 20px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .card span { color: var(--muted); font-size: 13px; }
+  .card strong { display: block; font-size: 24px; margin-top: 6px; }
+
+  .filters { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .filters input { min-width: 260px; }
+
+  .table-wrap { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 14px; white-space: nowrap; }
+  th { background: #f1f5f9; color: var(--muted); font-weight: 600; }
+  th.sortable { cursor: pointer; user-select: none; }
+  th.sortable:hover { color: var(--text); }
+  th.sort-asc::after { content: ' ▲'; font-size: 11px; }
+  th.sort-desc::after { content: ' ▼'; font-size: 11px; }
+  tr.hoy td { background: #E8F5E9; }
+  .num { text-align: right; }
+  .debt { color: var(--danger); font-weight: 600; }
+  .badge { padding: 3px 8px; border-radius: 999px; font-size: 12px; background: #e2e8f0; }
+  .badge.asistio { background: #dcfce7; color: #166534; }
+  .badge.no { background: #fee2e2; color: #991b1b; }
+  .btn-com { background: transparent; border: 1px solid var(--border); padding: 4px 10px; font-size: 13px; border-radius: 999px; }
+  .btn-com:hover { background: #f1f5f9; }
+  .msg { color: var(--muted); padding: 24px; text-align: center; }
+  .error { color: var(--danger); margin-top: 12px; }
+
+  /* Modal de comentarios */
+  .overlay { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: grid; place-items: center; padding: 16px; z-index: 10; }
+  .modal { background: var(--card); border-radius: 12px; width: 100%; max-width: 520px; max-height: 90vh; display: flex; flex-direction: column; padding: 20px; gap: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.2); }
+  .modal-head { display: flex; justify-content: space-between; align-items: center; }
+  .modal-head h3 { margin: 0; font-size: 18px; }
+  .modal-head .x { border: none; background: transparent; font-size: 22px; line-height: 1; padding: 0 4px; color: var(--muted); }
+  .modal-sub { color: var(--muted); font-size: 13px; margin: 0; }
+  .com-list { overflow-y: auto; display: grid; gap: 10px; min-height: 60px; }
+  .com { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: #f8fafc; }
+  .com-meta { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .com-texto { white-space: pre-wrap; font-size: 14px; }
+  .modal form { display: grid; gap: 8px; }
+  .modal textarea { width: 100%; resize: vertical; }
+  .modal-actions { display: flex; justify-content: flex-end; }
+
+  @media (max-width: 720px) {
+    .layout { grid-template-columns: 1fr; }
+    aside { flex-direction: row; flex-wrap: wrap; }
+    .meses { max-height: none; }
+  }
+</style>
+</head>
+<body>
+
+<section id="login-view" class="login">
+  <form id="login-form">
+    <h1>Iniciar sesión</h1>
+    <input type="email" id="email" placeholder="Correo" required />
+    <input type="password" id="password" placeholder="Contraseña" required />
+    <button class="primary" type="submit">Entrar</button>
+    <p id="login-error" class="error" hidden></p>
+  </form>
+</section>
+
+<section id="app-view" class="layout" hidden>
+  <aside>
+    <h2>Seguimiento</h2>
+    <div class="nav">Pacientes con deuda</div>
+
+    <div class="side-filter">
+      <div class="side-title">Mes de realización</div>
+      <div class="side-actions">
+        <button type="button" id="mes-todos">Todos</button>
+        <button type="button" id="mes-ninguno">Ninguno</button>
+      </div>
+      <div id="meses" class="meses"></div>
+    </div>
+
+    <button class="logout" id="logout">Cerrar sesión</button>
+  </aside>
+
+  <main>
+    <h1 class="page">Pacientes con deuda</h1>
+    <p class="sub">Acciones realizadas con saldo pendiente</p>
+
+    <div class="cards">
+      <div class="card"><span>Pacientes con deuda</span><strong id="kpi-pacientes">0</strong></div>
+      <div class="card"><span>Acciones con deuda</span><strong id="kpi-acciones">0</strong></div>
+      <div class="card"><span>Deuda total</span><strong id="kpi-total">0</strong></div>
+    </div>
+
+    <div class="filters">
+      <input type="search" id="buscar" placeholder="Buscar paciente o prestación..." />
+      <select id="filtro-estado">
+        <option value="">Todos los estados</option>
+      </select>
+    </div>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th class="sortable" data-col="paciente">Paciente</th>
+            <th class="sortable" data-col="prestacion">Prestación</th>
+            <th class="sortable" data-col="fecha">Fecha realización</th>
+            <th class="sortable num" data-col="deuda">Deuda</th>
+            <th class="sortable" data-col="estado">Estado última cita</th>
+            <th>Comentarios</th>
+          </tr>
+        </thead>
+        <tbody id="tbody">
+          <tr><td colspan="6" class="msg">Cargando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p id="error" class="error" hidden></p>
+  </main>
+</section>
+
+<!-- Modal de comentarios -->
+<div id="modal" class="overlay" hidden>
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="m-titulo"></h3>
+      <button class="x" id="m-cerrar" type="button" aria-label="Cerrar">×</button>
+    </div>
+    <p id="m-sub" class="modal-sub"></p>
+    <div id="m-lista" class="com-list"></div>
+    <form id="m-form">
+      <textarea id="m-texto" rows="3" placeholder="Escribe un comentario..." required></textarea>
+      <div class="modal-actions">
+        <button class="primary" type="submit">Guardar comentario</button>
+      </div>
+      <p id="m-error" class="error" hidden></p>
+    </form>
+  </div>
+</div>
+
+<script>
+  // ⚠️ Sustituye por los datos de tu proyecto (Settings > API en Supabase)
+  const SUPABASE_URL = 'https://asscjcfhlqevqjsklkvm.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFzc2NqY2ZobHFldnFqc2tsa3ZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwNDc0MjksImV4cCI6MjEwNDYyMzQyOX0.E-oAaRIQQQIYtV_pB0P7zT_cK89u-zU6ewd0zpo7mPE';
+  const MONEDA = 'PEN'; // cambia a la moneda de tu clínica si es otra
+
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let filas = [];
+  let mesesSeleccionados = new Set();
+  let mesesConocidos = new Set();
+  let orden = { col: 'deuda', dir: 'desc' };
+  let datosCargados = false;
+  let cargando = false;
+  let userId = null;
+  let comentarios = new Map();   // id_detalle_presupuesto -> [comentario, ...]
+  let accionActiva = null;       // registro abierto en el modal
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const dinero = n => new Intl.NumberFormat('es-PE', { style: 'currency', currency: MONEDA }).format(n);
+  const fecha = f => f ? f.slice(0, 10).split('-').reverse().join('/') : '—';
+  const fechaHora = iso => new Date(iso).toLocaleString('es-PE', { dateStyle: 'short', timeStyle: 'short' });
+
+  function claseEstado(estado) {
+    const t = estado.toLowerCase();
+    if (t.startsWith('no')) return 'no';
+    if (t.includes('asist')) return 'asistio';
+    return '';
+  }
+
+  // ¿La fecha ISO corresponde al día de hoy (hora local)?
+  function esHoy(iso) {
+    if (!iso) return false;
+    const d = new Date(iso);
+    const h = new Date();
+    return d.getFullYear() === h.getFullYear() &&
+           d.getMonth() === h.getMonth() &&
+           d.getDate() === h.getDate();
+  }
+
+  // Comentario más reciente de un registro
+  function ultimoComentario(id) {
+    let ultimo = null;
+    for (const c of comentarios.get(id) || []) {
+      if (!ultimo || new Date(c.created_at) > new Date(ultimo.created_at)) ultimo = c;
+    }
+    return ultimo;
+  }
+
+  // Login / sesión
+  $('login-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    $('login-error').hidden = true;
+    const { error } = await sb.auth.signInWithPassword({
+      email: $('email').value,
+      password: $('password').value
+    });
+    if (error) {
+      $('login-error').textContent = 'Error: ' + error.message;
+      $('login-error').hidden = false;
+    }
+  });
+
+  $('logout').addEventListener('click', () => sb.auth.signOut());
+
+  // Los datos se cargan una sola vez por sesión. Cambiar de pestaña o de ventana
+  // no vuelve a consultar Supabase, así que los filtros se mantienen.
+  sb.auth.onAuthStateChange((event, session) => {
+    if (session) {
+      userId = session.user.id;
+      $('login-view').hidden = true;
+      $('app-view').hidden = false;
+      if (!datosCargados) {
+        datosCargados = true;
+        cargarDatos();
+      }
+    } else {
+      userId = null;
+      datosCargados = false;
+      filas = [];
+      comentarios = new Map();
+      mesesConocidos = new Set();
+      cerrarComentarios();
+      $('login-view').hidden = false;
+      $('app-view').hidden = true;
+    }
+  });
+
+  // Descarga todas las filas en páginas de 1000 (límite por defecto de Supabase)
+  async function obtenerTodo(tabla, columnas, orden, filtrar = q => q) {
+    const PAGE = 1000;
+    let desde = 0;
+    let todo = [];
+    while (true) {
+      const { data, error } = await filtrar(
+        sb.from(tabla).select(columnas).order(orden).range(desde, desde + PAGE - 1)
+      );
+      if (error) throw error;
+      todo = todo.concat(data);
+      if (data.length < PAGE) break;
+      desde += PAGE;
+    }
+    return todo;
+  }
+
+  async function cargarDatos() {
+    if (cargando) return;
+    cargando = true;
+    $('error').hidden = true;
+    $('tbody').innerHTML = '<tr><td colspan="6" class="msg">Cargando...</td></tr>';
+
+    try {
+      const [acciones, citas, notas] = await Promise.all([
+        obtenerTodo(
+          'Dentalink_acciones_realizadas',
+          'id_detalle_presupuesto,id_paciente,paciente_nombre,paciente_apellidos,nombre_prestacion,fecha_realizacion,precio_prestacion,pagado_paciente',
+          'id_detalle_presupuesto'
+        ),
+        obtenerTodo(
+          'v_citas_con_ultima',
+          'id_paciente,estado_cita',
+          'id_cita',
+          q => q.eq('es_ultima_cita', true)
+        ),
+        obtenerTodo(
+          'comentarios_deuda',
+          'id,id_detalle_presupuesto,comentario,created_by,created_at',
+          'created_at'
+        )
+      ]);
+
+      // Estado de la última cita por paciente
+      const estadoPorPaciente = new Map(citas.map(c => [c.id_paciente, c.estado_cita]));
+
+      // Comentarios agrupados por registro
+      comentarios = new Map();
+      notas.forEach(n => {
+        if (!comentarios.has(n.id_detalle_presupuesto)) comentarios.set(n.id_detalle_presupuesto, []);
+        comentarios.get(n.id_detalle_presupuesto).push(n);
+      });
+
+      filas = acciones
+        .map(a => {
+          const precio = Number(a.precio_prestacion ?? 0);
+          const pagado = Number(a.pagado_paciente ?? 0);
+          const fechaISO = a.fecha_realizacion ? a.fecha_realizacion.slice(0, 10) : '';
+          return {
+            id: a.id_detalle_presupuesto,
+            id_paciente: a.id_paciente,
+            paciente: [a.paciente_nombre, a.paciente_apellidos].filter(Boolean).join(' ') || 'Sin nombre',
+            prestacion: a.nombre_prestacion || '—',
+            fecha: fechaISO,
+            mes: fechaISO ? fechaISO.slice(0, 7) : 'sin-fecha',
+            deuda: Math.round((precio - pagado) * 100) / 100,
+            estado: estadoPorPaciente.get(a.id_paciente) ?? 'Sin citas'
+          };
+        })
+        .filter(f => f.deuda > 0);
+
+      cargarMeses();
+      cargarEstados();
+      pintar();
+    } catch (err) {
+      $('error').textContent = 'Error al cargar datos: ' + err.message;
+      $('error').hidden = false;
+      $('tbody').innerHTML = '';
+      datosCargados = false; // permite reintentar al volver a entrar
+    } finally {
+      cargando = false;
+    }
+  }
+
+  // Filtro de meses (sidebar, selección múltiple)
+  function nombreMes(clave) {
+    if (clave === 'sin-fecha') return 'Sin fecha';
+    const [y, m] = clave.split('-').map(Number);
+    const texto = new Date(y, m - 1, 1).toLocaleDateString('es-PE', { month: 'long', year: 'numeric' });
+    return texto.charAt(0).toUpperCase() + texto.slice(1);
+  }
+
+  function cargarMeses() {
+    const claves = [...new Set(filas.map(f => f.mes))].sort((a, b) => {
+      if (a === 'sin-fecha') return 1;
+      if (b === 'sin-fecha') return -1;
+      return b.localeCompare(a);
+    });
+
+    // Los meses que ya existían conservan su estado; los nuevos aparecen marcados
+    const nuevos = claves.filter(m => !mesesConocidos.has(m));
+    mesesSeleccionados = new Set(
+      [...mesesSeleccionados].filter(m => claves.includes(m)).concat(nuevos)
+    );
+    mesesConocidos = new Set(claves);
+
+    $('meses').innerHTML = claves.map(m => `
+      <label>
+        <input type="checkbox" value="${esc(m)}" ${mesesSeleccionados.has(m) ? 'checked' : ''} />
+        ${esc(nombreMes(m))}
+      </label>`).join('');
+  }
+
+  $('meses').addEventListener('change', e => {
+    const v = e.target.value;
+    if (e.target.checked) mesesSeleccionados.add(v);
+    else mesesSeleccionados.delete(v);
+    pintar();
+  });
+
+  function marcarMeses(marcar) {
+    document.querySelectorAll('#meses input').forEach(cb => {
+      cb.checked = marcar;
+      if (marcar) mesesSeleccionados.add(cb.value);
+      else mesesSeleccionados.delete(cb.value);
+    });
+    pintar();
+  }
+  $('mes-todos').addEventListener('click', () => marcarMeses(true));
+  $('mes-ninguno').addEventListener('click', () => marcarMeses(false));
+
+  function cargarEstados() {
+    const sel = $('filtro-estado');
+    const actual = sel.value;
+    const estados = [...new Set(filas.map(f => f.estado))].sort();
+    sel.innerHTML = '<option value="">Todos los estados</option>' +
+      estados.map(e => `<option value="${esc(e)}">${esc(e)}</option>`).join('');
+    sel.value = actual;
+  }
+
+  // Ordenación por encabezados
+  document.querySelectorAll('th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      orden = orden.col === col
+        ? { col, dir: orden.dir === 'asc' ? 'desc' : 'asc' }
+        : { col, dir: 'asc' };
+      pintar();
+    });
+  });
+
+  function comparar(a, b, col) {
+    const va = a[col];
+    const vb = b[col];
+    if (typeof va === 'number') return va - vb;
+    return String(va ?? '').localeCompare(String(vb ?? ''), 'es', { sensitivity: 'base' });
+  }
+
+  function actualizarIndicadores() {
+    document.querySelectorAll('th.sortable').forEach(th => {
+      th.classList.remove('sort-asc', 'sort-desc');
+      if (th.dataset.col === orden.col) th.classList.add('sort-' + orden.dir);
+    });
+  }
+
+  function pintar() {
+    const texto = $('buscar').value.trim().toLowerCase();
+    const estado = $('filtro-estado').value;
+
+    const visibles = filas.filter(f =>
+      mesesSeleccionados.has(f.mes) &&
+      (!estado || f.estado === estado) &&
+      (!texto || f.paciente.toLowerCase().includes(texto) || f.prestacion.toLowerCase().includes(texto))
+    );
+
+    const sentido = orden.dir === 'asc' ? 1 : -1;
+    visibles.sort((a, b) => comparar(a, b, orden.col) * sentido);
+
+    const total = visibles.reduce((s, f) => s + f.deuda, 0);
+    $('kpi-pacientes').textContent = new Set(visibles.map(f => f.id_paciente)).size;
+    $('kpi-acciones').textContent = visibles.length;
+    $('kpi-total').textContent = dinero(total);
+
+    actualizarIndicadores();
+
+    $('tbody').innerHTML = visibles.length
+      ? visibles.map(f => {
+          const n = (comentarios.get(f.id) || []).length;
+          const ultimo = ultimoComentario(f.id);
+          const clase = esHoy(ultimo?.created_at) ? 'hoy' : '';
+          return `
+        <tr class="${clase}">
+          <td>${esc(f.paciente)}</td>
+          <td>${esc(f.prestacion)}</td>
+          <td>${fecha(f.fecha)}</td>
+          <td class="num debt">${dinero(f.deuda)}</td>
+          <td><span class="badge ${claseEstado(f.estado)}">${esc(f.estado)}</span></td>
+          <td><button class="btn-com" data-id="${f.id}">💬 ${n}</button></td>
+        </tr>`;
+        }).join('')
+      : '<tr><td colspan="6" class="msg">No hay pacientes con deuda para los filtros seleccionados</td></tr>';
+  }
+
+  $('buscar').addEventListener('input', pintar);
+  $('filtro-estado').addEventListener('change', pintar);
+
+  // ===== Comentarios =====
+
+  $('tbody').addEventListener('click', e => {
+    const btn = e.target.closest('.btn-com');
+    if (btn) abrirComentarios(Number(btn.dataset.id));
+  });
+
+  function abrirComentarios(id) {
+    accionActiva = filas.find(f => f.id === id) || null;
+    if (!accionActiva) return;
+    $('m-titulo').textContent = accionActiva.paciente;
+    $('m-sub').textContent = `${accionActiva.prestacion} · ${fecha(accionActiva.fecha)} · Deuda ${dinero(accionActiva.deuda)}`;
+    $('m-texto').value = '';
+    $('m-error').hidden = true;
+    renderComentarios();
+    $('modal').hidden = false;
+    $('m-texto').focus();
+  }
+
+  function cerrarComentarios() {
+    $('modal').hidden = true;
+    accionActiva = null;
+  }
+
+  function renderComentarios() {
+    const lista = (comentarios.get(accionActiva.id) || [])
+      .slice()
+      .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+    $('m-lista').innerHTML = lista.length
+      ? lista.map(c => `
+        <div class="com">
+          <div class="com-meta">${fechaHora(c.created_at)}</div>
+          <div class="com-texto">${esc(c.comentario)}</div>
+        </div>`).join('')
+      : '<p class="msg">Sin comentarios todavía</p>';
+  }
+
+  $('m-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const texto = $('m-texto').value.trim();
+    if (!texto || !accionActiva) return;
+    $('m-error').hidden = true;
+
+    const { data, error } = await sb
+      .from('comentarios_deuda')
+      .insert({ id_detalle_presupuesto: accionActiva.id, comentario: texto, created_by: userId })
+      .select()
+      .single();
+
+    if (error) {
+      $('m-error').textContent = 'No se pudo guardar: ' + error.message;
+      $('m-error').hidden = false;
+      return;
+    }
+
+    const id = accionActiva.id;
+    comentarios.set(id, [...(comentarios.get(id) || []), data]);
+    $('m-texto').value = '';
+    renderComentarios();
+    pintar();
+  });
+
+  $('m-cerrar').addEventListener('click', cerrarComentarios);
+  $('modal').addEventListener('click', e => { if (e.target === $('modal')) cerrarComentarios(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('modal').hidden) cerrarComentarios(); });
+</script>
+</body>
+</html>
